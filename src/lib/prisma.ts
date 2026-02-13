@@ -7,10 +7,8 @@ const globalForPrisma = globalThis as unknown as {
   pgPool: Pool | undefined
 }
 
-const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is not configured")
-}
+const databaseUrl =
+  process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres"
 
 const pool =
   globalForPrisma.pgPool ??
@@ -26,4 +24,3 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma
   globalForPrisma.pgPool = pool
 }
-
