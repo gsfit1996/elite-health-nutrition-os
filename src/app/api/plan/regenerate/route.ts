@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import type { Prisma } from "@prisma/client"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { questionnaireSchema, QuestionnaireAnswers } from "@/questionnaire/schema"
@@ -54,7 +55,7 @@ export async function POST() {
         version: newVersion,
         title: `Elite Health Nutrition Plan - ${answers.firstName}`,
         markdown: planResult.markdown,
-        derivedTargets: derivedTargets,
+        derivedTargets: derivedTargets as unknown as Prisma.InputJsonValue,
         llmModel: "glm-4",
         llmPromptHash: hashPrompt(JSON.stringify(answers)),
       },

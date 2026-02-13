@@ -4,15 +4,14 @@ import { PrismaAdapter } from "@auth/prisma-adapter"
 import EmailProvider from "next-auth/providers/email"
 import { prisma } from "./prisma"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const emailFrom = process.env.EMAIL_FROM || "noreply@elitehealth.com"
 
-export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as any,
-  providers: [
-    EmailProvider({
-      from: process.env.EMAIL_FROM || "noreply@elitehealth.com",
+const emailProvider = process.env.RESEND_API_KEY
+  ? EmailProvider({
+      from: emailFrom,
       sendVerificationRequest: async ({ identifier, url, provider }) => {
         const { from } = provider
+        const resend = new Resend(process.env.RESEND_API_KEY!)
         
         try {
           await resend.emails.send({
@@ -35,8 +34,22 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Failed to send verification email")
         }
       },
-    }),
-  ],
+    })
+  : EmailProvider({
+      from: emailFrom,
+      server: {
+        host: process.env.EMAIL_SERVER_HOST || "",
+        port: Number(process.env.EMAIL_SERVER_PORT || 587),
+        auth: {
+          user: process.env.EMAIL_SERVER_USER || "",
+          pass: process.env.EMAIL_SERVER_PASSWORD || "",
+        },
+      },
+    })
+
+export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma) as any,
+  providers: [emailProvider],
   session: {
     strategy: "jwt",
   },

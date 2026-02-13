@@ -6,7 +6,7 @@ import { pollGammaStatus } from "@/lib/gamma"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { planId: string } }
+  { params }: { params: Promise<{ planId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -15,7 +15,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { planId } = params
+    const { planId } = await params
 
     // Get the gamma generation record
     const gammaGeneration = await prisma.gammaGeneration.findUnique({
