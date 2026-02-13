@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState, useEffect } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import ReactMarkdown from "react-markdown"
@@ -22,117 +22,107 @@ interface NutritionPlan {
   id: string
   version: number
   title: string
-  markdown: string
+  status: "generating" | "ready" | "failed"
+  error: string | null
+  markdown: string | null
   derivedTargets: DerivedTargetsType
   createdAt: string
   gammaGeneration: GammaGeneration | null
 }
 
 function PlanPageContent() {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+
   const [plan, setPlan] = useState<NutritionPlan | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isRegenerating, setIsRegenerating] = useState(false)
-  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null)
 
-  const isGenerating = searchParams.get("generating") === "true"
+  const isGeneratingQuery = searchParams.get("generating") === "true"
+  const shouldPoll = useMemo(
+    () =>
+      plan?.status === "generating" ||
+      plan?.gammaGeneration?.status === "queued" ||
+      plan?.gammaGeneration?.status === "pending",
+    [plan?.status, plan?.gammaGeneration?.status]
+  )
+
+  const fetchPlan = useCallback(async () => {
+    const response = await fetch("/api/plan")
+    if (response.ok) {
+      const data = await response.json()
+      setPlan(data.plan)
+      return
+    }
+
+    if (response.status === 404 && !isGeneratingQuery) {
+      router.push("/questionnaire")
+      return
+    }
+  }, [isGeneratingQuery, router])
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login")
       return
     }
-
     if (status !== "authenticated") return
 
     fetchPlan()
-  }, [status, router])
+      .catch(() => {
+        toast({
+          title: "Error",
+          description: "Failed to load plan.",
+          variant: "destructive",
+        })
+      })
+      .finally(() => setIsLoading(false))
+  }, [status, router, toast, fetchPlan])
 
-  // Poll for Gamma status updates
   useEffect(() => {
-    if (plan?.gammaGeneration?.status === "pending" || plan?.gammaGeneration?.status === "queued") {
-      const interval = setInterval(async () => {
-        try {
-          const response = await fetch(`/api/gamma/status/${plan.id}`)
-          if (response.ok) {
-            const data = await response.json()
-            if (data.gammaGeneration) {
-              setPlan((prev) => {
-                if (!prev) return prev
-                return {
-                  ...prev,
-                  gammaGeneration: data.gammaGeneration,
-                }
-              })
+    if (!plan || !shouldPoll) return
 
-              // Stop polling if completed or failed
-              if (data.gammaGeneration.status === "completed" || data.gammaGeneration.status === "failed") {
-                clearInterval(interval)
-                setPollInterval(null)
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Error polling Gamma status:", error)
-        }
-      }, 5000)
-
-      setPollInterval(interval)
-
-      return () => {
-        clearInterval(interval)
+    const interval = setInterval(async () => {
+      const statusResponse = await fetch(`/api/plan/status/${plan.id}`)
+      if (!statusResponse.ok) {
+        return
       }
-    }
-  }, [plan?.gammaGeneration?.status])
 
-  async function fetchPlan() {
-    try {
-      const response = await fetch("/api/plan")
-      if (response.ok) {
-        const data = await response.json()
-        setPlan(data.plan)
-      } else if (response.status === 404) {
-        // No plan yet
-        if (!isGenerating) {
-          router.push("/questionnaire")
-        }
+      const payload = await statusResponse.json()
+      if (payload.status !== plan.status || payload.gammaStatus !== plan.gammaGeneration?.status) {
+        await fetchPlan()
       }
-    } catch (error) {
-      console.error("Error fetching plan:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [plan, shouldPoll, fetchPlan])
 
   async function handleRegenerate() {
-    if (!confirm("Are you sure you want to regenerate your plan? This will create a new version.")) {
+    if (!confirm("Are you sure you want to regenerate your plan? This creates a new version.")) {
       return
     }
 
     setIsRegenerating(true)
-
     try {
-      const response = await fetch("/api/plan/regenerate", {
-        method: "POST",
+      const response = await fetch("/api/plan/regenerate", { method: "POST" })
+      if (!response.ok) {
+        throw new Error("Regenerate failed")
+      }
+
+      const payload = await response.json()
+      toast({
+        title: "Plan queued",
+        description: "A new plan version is being generated.",
       })
 
-      if (response.ok) {
-        toast({
-          title: "Plan regenerated!",
-          description: "Your new plan is being generated...",
-        })
-        router.push("/plan?generating=true")
-        fetchPlan()
-      } else {
-        throw new Error("Failed to regenerate")
-      }
-    } catch (error) {
+      router.push(`/plan?generating=true&planId=${payload.planId}`)
+      await fetchPlan()
+    } catch {
       toast({
         title: "Error",
-        description: "Failed to regenerate plan. Please try again.",
+        description: "Could not regenerate your plan.",
         variant: "destructive",
       })
     } finally {
@@ -140,13 +130,26 @@ function PlanPageContent() {
     }
   }
 
-  function getGammaStatusBadge(status: string) {
-    switch (status) {
+  function getGammaStatusBadge(currentStatus: string) {
+    switch (currentStatus) {
       case "completed":
         return <Badge className="bg-green-600">Ready</Badge>
       case "pending":
       case "queued":
-        return <Badge variant="secondary">Processing...</Badge>
+        return <Badge variant="secondary">Processing</Badge>
+      case "failed":
+        return <Badge variant="destructive">Failed</Badge>
+      default:
+        return <Badge variant="outline">Unknown</Badge>
+    }
+  }
+
+  function getPlanStatusBadge(currentStatus: NutritionPlan["status"]) {
+    switch (currentStatus) {
+      case "ready":
+        return <Badge className="bg-green-600">Ready</Badge>
+      case "generating":
+        return <Badge variant="secondary">Generating</Badge>
       case "failed":
         return <Badge variant="destructive">Failed</Badge>
       default:
@@ -156,9 +159,9 @@ function PlanPageContent() {
 
   if (isLoading || status !== "authenticated") {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-green-600" />
           <p className="mt-4 text-gray-600">Loading your plan...</p>
         </div>
       </div>
@@ -167,7 +170,7 @@ function PlanPageContent() {
 
   if (!plan) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="max-w-md">
           <CardHeader>
             <CardTitle>No Plan Yet</CardTitle>
@@ -176,9 +179,7 @@ function PlanPageContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => router.push("/questionnaire")}>
-              Start Questionnaire
-            </Button>
+            <Button onClick={() => router.push("/questionnaire")}>Start Questionnaire</Button>
           </CardContent>
         </Card>
       </div>
@@ -190,115 +191,132 @@ function PlanPageContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <header className="flex justify-between items-center mb-8">
+        <header className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-xl">E</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-600">
+              <span className="text-xl font-bold text-white">E</span>
             </div>
             <span className="text-xl font-bold text-gray-900">Elite Health</span>
           </div>
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={() => router.push("/dashboard")}>
-              Dashboard
-            </Button>
-          </div>
+          <Button variant="outline" onClick={() => router.push("/dashboard")}>
+            Dashboard
+          </Button>
         </header>
 
-        {/* Derived Targets Summary */}
+        <Card className="mb-8">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Plan Status</CardTitle>
+                <CardDescription>Current generation state for version {plan.version}</CardDescription>
+              </div>
+              {getPlanStatusBadge(plan.status)}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {plan.status === "generating" && (
+              <p className="text-gray-600">
+                Your plan is queued or generating. This page refreshes automatically.
+              </p>
+            )}
+            {plan.status === "failed" && (
+              <p className="text-red-600">
+                Plan generation failed: {plan.error || "Unknown error"}
+              </p>
+            )}
+            {plan.status === "ready" && (
+              <p className="text-green-700">Plan is ready. Review and export below.</p>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Your Daily Targets</CardTitle>
-            <CardDescription>
-              Based on your stats and goals
-            </CardDescription>
+            <CardDescription>Based on your stats and goals</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-green-50 rounded-lg">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div className="rounded-lg bg-green-50 p-4 text-center">
                 <p className="text-sm text-gray-600">Protein</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {targets.proteinMin}–{targets.proteinMax}g
+                  {targets.proteinMin}-{targets.proteinMax}g
                 </p>
               </div>
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="rounded-lg bg-blue-50 p-4 text-center">
                 <p className="text-sm text-gray-600">Calories</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  ~{targets.caloriesPerDay}
-                </p>
+                <p className="text-2xl font-bold text-blue-600">~{targets.caloriesPerDay}</p>
               </div>
-              <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="rounded-lg bg-purple-50 p-4 text-center">
                 <p className="text-sm text-gray-600">Goal Mode</p>
-                <p className="text-lg font-bold text-purple-600 capitalize">
+                <p className="text-lg font-bold capitalize text-purple-600">
                   {targets.goalMode.replace("_", " ")}
                 </p>
               </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
+              <div className="rounded-lg bg-orange-50 p-4 text-center">
                 <p className="text-sm text-gray-600">Version</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  v{plan.version}
-                </p>
+                <p className="text-2xl font-bold text-orange-600">v{plan.version}</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Gamma Status */}
         {plan.gammaGeneration && (
           <Card className="mb-8">
             <CardHeader>
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Export Status</CardTitle>
-                  <CardDescription>
-                    Gamma document generation
-                  </CardDescription>
+                  <CardDescription>Gamma document generation</CardDescription>
                 </div>
                 {getGammaStatusBadge(plan.gammaGeneration.status)}
               </div>
             </CardHeader>
             <CardContent>
               {plan.gammaGeneration.status === "completed" && plan.gammaGeneration.gammaUrl && (
-                <div className="flex gap-4">
-                  <a
-                    href={plan.gammaGeneration.gammaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button>Open in Gamma</Button>
-                  </a>
-                </div>
+                <a
+                  href={plan.gammaGeneration.gammaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button>Open in Gamma</Button>
+                </a>
               )}
               {plan.gammaGeneration.status === "pending" && (
-                <p className="text-gray-600">
-                  Your document is being generated. This usually takes 1-2 minutes.
-                </p>
+                <p className="text-gray-600">Export is in progress. It usually completes in 1-2 minutes.</p>
               )}
               {plan.gammaGeneration.status === "failed" && (
                 <p className="text-red-600">
-                  Document generation failed: {plan.gammaGeneration.error || "Unknown error"}
+                  Export failed: {plan.gammaGeneration.error || "Unknown error"}
                 </p>
               )}
             </CardContent>
           </Card>
         )}
 
-        {/* Actions */}
-        <div className="flex gap-4 mb-8">
+        <div className="mb-8 flex gap-4">
           <Button variant="outline" onClick={handleRegenerate} disabled={isRegenerating}>
             {isRegenerating ? "Regenerating..." : "Regenerate Plan"}
           </Button>
           <Button variant="outline" onClick={() => router.push("/questionnaire")}>
             Edit Questionnaire
           </Button>
+          <Button variant="outline" onClick={() => router.push("/progress")}>
+            Open Progress
+          </Button>
         </div>
 
-        {/* Plan Content */}
         <Card>
           <CardContent className="pt-6">
-            <div className="prose prose-green max-w-none">
-              <ReactMarkdown>{plan.markdown}</ReactMarkdown>
-            </div>
+            {plan.status !== "ready" || !plan.markdown ? (
+              <p className="text-gray-600">
+                Plan content will appear here when generation completes.
+              </p>
+            ) : (
+              <div className="prose prose-green max-w-none">
+                <ReactMarkdown>{plan.markdown}</ReactMarkdown>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -308,9 +326,9 @@ function PlanPageContent() {
 
 function LoadingFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+        <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-green-600" />
         <p className="mt-4 text-gray-600">Loading your plan...</p>
       </div>
     </div>

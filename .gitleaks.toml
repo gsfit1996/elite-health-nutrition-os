@@ -1,0 +1,10 @@
+title = "elite-health-nutrition-gitleaks"
+
+[allowlist]
+description = "Allow non-sensitive placeholders used in docs and examples."
+regexes = [
+  '''your-glm-5-api-key''',
+  '''your-gamma-api-key''',
+  '''re_xxxxxxxxxxxx'''
+]
+

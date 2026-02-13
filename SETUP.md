@@ -57,9 +57,9 @@ NEXTAUTH_URL="http://localhost:3000"
 The GLM-5 and Gamma API keys are already provided in the task:
 
 ```
-GLM_5_API_KEY="dcf160ff7511489190d9ba467df3f0fd.U95T1SW5MLFkFD7x"
+GLM_5_API_KEY="your-glm-5-api-key"
 GLM_5_ENDPOINT="https://open.bigmodel.cn/api/paas/v4/chat/completions"
-GAMMA_API_KEY="sk-gamma-scDMMtwqrcgzA6oShdWyEBzFRJG7yjvHLPMKI71X9c"
+GAMMA_API_KEY="your-gamma-api-key"
 ```
 
 ### 5. Initialize Database
@@ -98,11 +98,11 @@ RESEND_API_KEY="re_xxxxxxxxxxxx"
 EMAIL_FROM="Elite Health <onboarding@resend.dev>"
 
 # GLM-5 API - BigModel
-GLM_5_API_KEY="dcf160ff7511489190d9ba467df3f0fd.U95T1SW5MLFkFD7x"
+GLM_5_API_KEY="your-glm-5-api-key"
 GLM_5_ENDPOINT="https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
 # Gamma API
-GAMMA_API_KEY="sk-gamma-scDMMtwqrcgzA6oShdWyEBzFRJG7yjvHLPMKI71X9c"
+GAMMA_API_KEY="your-gamma-api-key"
 ```
 
 ## Testing the Application

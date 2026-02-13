@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
@@ -27,7 +27,7 @@ const PROTEIN_OPTIONS = [
 ] as const
 
 export default function QuestionnairePage() {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const router = useRouter()
   const { toast } = useToast()
   const [currentStep, setCurrentStep] = useState(0)
@@ -84,10 +84,10 @@ export default function QuestionnairePage() {
         // Try to load from localStorage first
         const savedDraft = localStorage.getItem("questionnaire-draft")
         if (savedDraft) {
-          const parsed = JSON.parse(savedDraft)
-          Object.keys(parsed).forEach((key) => {
-            setValue(key as any, parsed[key])
-          })
+          const parsed = JSON.parse(savedDraft) as Partial<QuestionnaireAnswers>
+          for (const [key, value] of Object.entries(parsed)) {
+            setValue(key as keyof QuestionnaireAnswers, value as never)
+          }
         }
 
         // Then try to load from server
@@ -95,9 +95,10 @@ export default function QuestionnairePage() {
         if (response.ok) {
           const data = await response.json()
           if (data.questionnaire) {
-            Object.keys(data.questionnaire.answers).forEach((key) => {
-              setValue(key as any, data.questionnaire.answers[key])
-            })
+            const answers = data.questionnaire.answers as Partial<QuestionnaireAnswers>
+            for (const [key, value] of Object.entries(answers)) {
+              setValue(key as keyof QuestionnaireAnswers, value as never)
+            }
           }
         }
       } catch (error) {

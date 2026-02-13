@@ -4,61 +4,15 @@ import { buildRepairPrompt } from "@/prompts/repair-prompt"
 import { QuestionnaireAnswers } from "@/questionnaire/schema"
 import { DerivedTargets } from "@/lib/derived-targets"
 import { validateMarkdown, ValidationResult } from "./markdown-validator"
+import { createHash } from "crypto"
+import { AIChatMessage } from "@/lib/ai/provider"
+import { getBigModelProvider } from "@/lib/ai/providers/bigmodel"
+import { logInfo } from "@/lib/logger"
 
-interface GLM5Response {
-  id: string
-  created: number
-  model: string
-  choices: {
-    index: number
-    message: {
-      role: string
-      content: string
-    }
-    finish_reason: string
-  }[]
-  usage: {
-    prompt_tokens: number
-    completion_tokens: number
-    total_tokens: number
-  }
-}
-
-async function callGLM5(messages: { role: string; content: string }[]): Promise<string> {
-  const apiKey = process.env.GLM_5_API_KEY
-  const endpoint = process.env.GLM_5_ENDPOINT || "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-
-  if (!apiKey) {
-    throw new Error("GLM_5_API_KEY is not configured")
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "glm-4",
-      messages,
-      temperature: 0.7,
-      max_tokens: 8000,
-    }),
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error("GLM-5 API error:", errorText)
-    throw new Error(`GLM-5 API error: ${response.status} - ${errorText}`)
-  }
-
-  const data: GLM5Response = await response.json()
-  
-  if (!data.choices || data.choices.length === 0) {
-    throw new Error("No response from GLM-5")
-  }
-
-  return data.choices[0].message.content
+async function callGLM5(messages: AIChatMessage[]): Promise<string> {
+  const provider = getBigModelProvider()
+  const result = await provider.generate(messages)
+  return result.content
 }
 
 export interface GeneratePlanResult {
@@ -92,8 +46,10 @@ export async function generateNutritionPlan(
   }
 
   // If invalid, try repair once
-  console.log("Initial markdown validation failed, attempting repair...")
-  console.log("Issues:", initialValidation.issues)
+  logInfo("plan.validation.initial_failed", {
+    issues: initialValidation.issues,
+    firstName: answers.firstName,
+  })
 
   const repairPrompt = buildRepairPrompt(initialMarkdown, initialValidation.issues)
 
@@ -107,6 +63,12 @@ export async function generateNutritionPlan(
   // Validate the repaired markdown
   const repairedValidation = validateMarkdown(repairedMarkdown, answers.firstName)
 
+  if (!repairedValidation.isValid) {
+    throw new Error(
+      `Generated markdown failed validation after repair: ${repairedValidation.issues.join("; ")}`
+    )
+  }
+
   return {
     markdown: repairedMarkdown,
     validation: repairedValidation,
@@ -116,11 +78,5 @@ export async function generateNutritionPlan(
 
 // Simple hash function for prompt versioning
 export function hashPrompt(prompt: string): string {
-  let hash = 0
-  for (let i = 0; i < prompt.length; i++) {
-    const char = prompt.charCodeAt(i)
-    hash = (hash << 5) - hash + char
-    hash = hash & hash // Convert to 32bit integer
-  }
-  return hash.toString(16)
+  return createHash("sha256").update(prompt).digest("hex")
 }

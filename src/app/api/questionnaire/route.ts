@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { step, answers } = body
+    const { answers } = body
 
     // Validate the answers (partial validation for step saves)
     const partialSchema = questionnaireSchema.partial()

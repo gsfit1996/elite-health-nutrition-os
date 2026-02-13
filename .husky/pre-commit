@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+. "$(dirname "$0")/_/husky.sh"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --verbose
+else
+  echo "gitleaks binary is required for pre-commit scanning."
+  echo "Install from https://github.com/gitleaks/gitleaks and retry."
+  exit 1
+fi
+
+npm run lint

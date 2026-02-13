@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { logError } from "@/lib/logger"
 
 export async function GET() {
   try {
@@ -25,7 +26,7 @@ export async function GET() {
 
     return NextResponse.json({ plan })
   } catch (error) {
-    console.error("Error fetching plan:", error)
+    logError("plan.get.failed", error)
     return NextResponse.json(
       { error: "Failed to fetch plan" },
       { status: 500 }

@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { signIn } from "next-auth/react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,7 +12,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
-  const router = useRouter()
   const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,7 +37,7 @@ export default function LoginPage() {
           description: "We sent you a magic link to sign in.",
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Something went wrong. Please try again.",
@@ -101,7 +99,7 @@ export default function LoginPage() {
           </div>
           <CardTitle>Sign in to your account</CardTitle>
           <CardDescription>
-            Enter your email and we'll send you a magic link to sign in.
+            Enter your email and we&apos;ll send you a magic link to sign in.
           </CardDescription>
         </CardHeader>
         <CardContent>
